@@ -7,6 +7,10 @@ on:
         description: Comma-separated SPDX identifiers the calling repository permits in addition to allowed-licenses.txt. Record the reason for each in the calling repository.
         type: string
         default: ""
+      allow-dependencies-licenses:
+        description: Comma-separated package URLs, such as pkg:npm/name, exempt from the license check whatever their license. Vulnerability and denied-package checks still apply. Record the reason for each in the calling repository.
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -51,4 +55,5 @@ jobs:
           fail-on-severity: moderate
           fail-on-scopes: runtime, development, unknown
           allow-licenses: ${{ steps.policy.outputs.allow-licenses }}
+          allow-dependencies-licenses: ${{ inputs.allow-dependencies-licenses }}
           deny-packages: ${{ steps.policy.outputs.deny-packages }}

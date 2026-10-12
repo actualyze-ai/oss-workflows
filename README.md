@@ -48,32 +48,43 @@ the caller; the ones that need a credential read it from an environment.
 
 ### Inputs
 
-| Workflow                | Input                 | Default                                  | Description                                                                 |
-| ----------------------- | --------------------- | ---------------------------------------- | --------------------------------------------------------------------------- |
-| `node-ci.yml`           | `node-versions`       | `'["24"]'`                               | JSON array of Node.js versions; the check job runs once per version         |
-|                         | `working-directory`   | `.`                                      | Directory holding `package.json` and `package-lock.json`                    |
-|                         | `check-script`        | `check`                                  | npm script that builds, typechecks, lints, and tests                        |
-| `codeql.yml`            | `languages`           | `'["actions", "javascript-typescript"]'` | JSON array of CodeQL languages that analyze without a build                 |
-|                         | `queries`             | `security-extended`                      | Query suite run in addition to the defaults                                 |
-| `dependency-review.yml` | `additional-licenses` | empty                                    | Comma-separated SPDX identifiers permitted on top of `allowed-licenses.txt` |
-| `vuln-scan.yml`         | `node-version`        | `24`                                     | Node.js version                                                             |
-|                         | `working-directory`   | `.`                                      | Directory holding `package.json` and `package-lock.json`                    |
-|                         | `provenance-baseline` | `.github/provenance-baseline.txt`        | Published versions without provenance, one `<version> <reason>` per line    |
-| `release-npm.yml`       | `node-version`        | `24`                                     | Node.js version for the build job                                           |
-|                         | `additional-licenses` | empty                                    | Comma-separated SPDX identifiers permitted on top of `allowed-licenses.txt` |
-| `finalize-release.yml`  | `tag`                 | required                                 | Release tag, such as `v1.2.3`                                               |
-|                         | `release-workflow`    | `release.yml`                            | File name of the caller's workflow that calls `release-npm.yml`             |
-| `compat-node.yml`       | `host-packages`       | required                                 | Space-separated npm names of the host packages                              |
-|                         | `node-version`        | `24`                                     | Node.js version                                                             |
-|                         | `working-directory`   | `.`                                      | Directory holding `package.json` and `package-lock.json`                    |
-|                         | `test-script`         | `check`                                  | npm script run against each host channel                                    |
-| `contract-tests.yml`    | `node-version`        | `24`                                     | Node.js version                                                             |
-|                         | `working-directory`   | `.`                                      | Directory holding `package.json` and `package-lock.json`                    |
-|                         | `test-script`         | `test:contract`                          | npm script that runs the contract tests                                     |
+| Workflow                | Input                         | Default                                  | Description                                                                         |
+| ----------------------- | ----------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------- |
+| `node-ci.yml`           | `node-versions`               | `'["24"]'`                               | JSON array of Node.js versions; the check job runs once per version                 |
+|                         | `working-directory`           | `.`                                      | Directory holding `package.json` and `package-lock.json`                            |
+|                         | `check-script`                | `check`                                  | npm script that builds, typechecks, lints, and tests                                |
+| `codeql.yml`            | `languages`                   | `'["actions", "javascript-typescript"]'` | JSON array of CodeQL languages that analyze without a build                         |
+|                         | `queries`                     | `security-extended`                      | Query suite run in addition to the defaults                                         |
+| `dependency-review.yml` | `additional-licenses`         | empty                                    | Comma-separated SPDX identifiers permitted on top of `allowed-licenses.txt`         |
+|                         | `allow-dependencies-licenses` | empty                                    | Comma-separated package URLs, such as `pkg:npm/name`, exempt from the license check |
+| `vuln-scan.yml`         | `node-version`                | `24`                                     | Node.js version                                                                     |
+|                         | `working-directory`           | `.`                                      | Directory holding `package.json` and `package-lock.json`                            |
+|                         | `provenance-baseline`         | `.github/provenance-baseline.txt`        | Published versions without provenance, one `<version> <reason>` per line            |
+| `release-npm.yml`       | `node-version`                | `24`                                     | Node.js version for the build job                                                   |
+|                         | `additional-licenses`         | empty                                    | Comma-separated SPDX identifiers permitted on top of `allowed-licenses.txt`         |
+| `finalize-release.yml`  | `tag`                         | required                                 | Release tag, such as `v1.2.3`                                                       |
+|                         | `release-workflow`            | `release.yml`                            | File name of the caller's workflow that calls `release-npm.yml`                     |
+| `compat-node.yml`       | `host-packages`               | required                                 | Space-separated npm names of the host packages                                      |
+|                         | `node-version`                | `24`                                     | Node.js version                                                                     |
+|                         | `working-directory`           | `.`                                      | Directory holding `package.json` and `package-lock.json`                            |
+|                         | `test-script`                 | `check`                                  | npm script run against each host channel                                            |
+| `contract-tests.yml`    | `node-version`                | `24`                                     | Node.js version                                                                     |
+|                         | `working-directory`           | `.`                                      | Directory holding `package.json` and `package-lock.json`                            |
+|                         | `test-script`                 | `test:contract`                          | npm script that runs the contract tests                                             |
 
 A repository that needs a license outside `allowed-licenses.txt` passes it
 in `additional-licenses` to both `dependency-review.yml` and
 `release-npm.yml`, and records why next to the caller.
+
+A development-only dependency whose license is outside the list, such as a
+build tool that is never shipped, can instead be exempted by package URL in
+`allow-dependencies-licenses` to `dependency-review.yml`. The exemption
+matches the package name at any version and skips only the license check;
+vulnerability and denied-package checks still apply. List every package
+URL the dependency adds, including platform-specific packages published
+under their own names, and record the reason next to the caller.
+`release-npm.yml` checks only the shipped tree, so it needs no matching
+exemption.
 
 ## Calling a workflow
 
