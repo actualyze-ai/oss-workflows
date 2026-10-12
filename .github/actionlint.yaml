@@ -1,0 +1,11 @@
+paths:
+  .github/workflows/**/*.yml:
+    ignore:
+      # actionlint 1.7.12 does not yet know the job.workflow_* context
+      # properties that reusable workflows use to check out their own
+      # repository: https://docs.github.com/actions/reference/workflows-and-actions/contexts#job-context
+      - 'property "workflow_(sha|repository)" is not defined in object type'
+      # actionlint 1.7.12 predates the self-repository syntax ($/...) for
+      # calling a reusable workflow in the same repository at the running
+      # commit: https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/
+      - 'reusable workflow call "\$/'

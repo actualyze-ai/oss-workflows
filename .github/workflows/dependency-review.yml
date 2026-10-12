@@ -1,0 +1,54 @@
+name: Dependency review
+
+on:
+  workflow_call:
+    inputs:
+      additional-licenses:
+        description: Comma-separated SPDX identifiers the calling repository permits in addition to allowed-licenses.txt. Record the reason for each in the calling repository.
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  dependency-review:
+    name: dependency review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+
+      # The policy lists come from this repository at the commit the caller
+      # pinned, so a caller cannot change them and a list change reaches a
+      # caller only through its pin update.
+      - name: Check out the policy lists
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: workflows
+          persist-credentials: false
+          # Cone mode also checks out the root files, including both lists.
+          sparse-checkout: tools
+
+      - name: Read the policy lists
+        id: policy
+        env:
+          ADDITIONAL_LICENSES: ${{ inputs.additional-licenses }}
+        run: |
+          {
+            echo "allow-licenses=$(node workflows/tools/join-list.mjs workflows/allowed-licenses.txt "$ADDITIONAL_LICENSES")"
+            echo "deny-packages=$(node workflows/tools/join-list.mjs workflows/denied-packages.txt)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate
+          fail-on-scopes: runtime, development, unknown
+          allow-licenses: ${{ steps.policy.outputs.allow-licenses }}
+          deny-packages: ${{ steps.policy.outputs.deny-packages }}

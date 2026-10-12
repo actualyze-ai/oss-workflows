@@ -1,0 +1,21 @@
+# SPDX license identifiers that dependencies may use, one per line.
+# dependency-review.yml passes this list to allow-licenses, and
+# release-npm.yml checks the full installed tree against it.
+# A license expression passes when any OR branch is in this list and
+# every AND term is.
+MIT
+MIT-0
+ISC
+Apache-2.0
+BSD-2-Clause
+BSD-3-Clause
+0BSD
+CC0-1.0
+Unlicense
+BlueOak-1.0.0
+Python-2.0
+Artistic-2.0
+Zlib
+BSL-1.0
+CC-BY-3.0
+CC-BY-4.0

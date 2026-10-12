@@ -1,0 +1,77 @@
+name: Vulnerability scan
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version to run npm with.
+        type: string
+        default: "24"
+      working-directory:
+        description: Directory holding package.json and package-lock.json, relative to the repository root.
+        type: string
+        default: "."
+      provenance-baseline:
+        description: File, relative to the repository root, listing published versions that have no provenance, one "<version> <reason>" per line.
+        type: string
+        default: .github/provenance-baseline.txt
+
+permissions: {}
+
+jobs:
+  scan:
+    name: vulnerability scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: package/${{ inputs.working-directory }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: package
+          persist-credentials: false
+
+      - name: Check out the policy tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: workflows
+          persist-credentials: false
+          sparse-checkout: tools
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Audit the full dependency tree
+        run: npm audit --audit-level=moderate
+
+      - name: Verify registry signatures and attestations
+        if: ${{ !cancelled() }}
+        run: npm audit signatures
+
+      - name: Check provenance of published versions
+        if: ${{ !cancelled() }}
+        env:
+          BASELINE: ${{ inputs.provenance-baseline }}
+        run: |
+          if [[ "$(node -p 'require("./package.json").private === true')" == "true" ]]; then
+            echo "The package is private; nothing is published."
+            exit 0
+          fi
+          name="$(node -p 'require("./package.json").name')"
+          node "$GITHUB_WORKSPACE/workflows/tools/check-provenance.mjs" "$name" "$GITHUB_WORKSPACE/package/$BASELINE"

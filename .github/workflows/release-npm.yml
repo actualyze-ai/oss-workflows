@@ -1,0 +1,220 @@
+name: Release npm package
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version for the build job.
+        type: string
+        default: "24"
+      additional-licenses:
+        description: Comma-separated SPDX identifiers the calling repository permits in addition to allowed-licenses.txt. Record the reason for each in the calling repository.
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tarball: ${{ steps.pack.outputs.tarball }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+    defaults:
+      run:
+        working-directory: package
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: package
+          persist-credentials: false
+
+      - name: Check out the policy tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: workflows
+          persist-credentials: false
+          # Cone mode also checks out the root files, including
+          # allowed-licenses.txt.
+          sparse-checkout: tools
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
+
+      - name: Check that the tag matches package.json
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if [[ "$REF_TYPE" != "tag" || "$TAG" != "v$version" ]]; then
+            echo "::error::A release of version $version must run on tag v$version, not $REF_TYPE $TAG"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the check script
+        run: npm run check
+
+      - name: Audit the full dependency tree
+        run: npm audit --audit-level=moderate
+
+      - name: Verify registry signatures and attestations
+        run: npm audit signatures
+
+      - name: Install the policy tools
+        working-directory: workflows/tools
+        run: npm ci --ignore-scripts
+
+      - name: Check licenses of the shipped dependency tree
+        env:
+          ADDITIONAL_LICENSES: ${{ inputs.additional-licenses }}
+        run: node ../workflows/tools/check-licenses.mjs . ../workflows/allowed-licenses.txt "$ADDITIONAL_LICENSES"
+
+      - name: Pack
+        id: pack
+        run: |
+          mkdir ../dist
+          npm pack --pack-destination ../dist
+          cd ../dist
+          shopt -s nullglob
+          tarballs=(*.tgz)
+          if [[ "${#tarballs[@]}" -ne 1 ]]; then
+            echo "::error::Expected one tarball from npm pack, found ${#tarballs[@]}"
+            exit 1
+          fi
+          tarball="${tarballs[0]}"
+          sha256sum "$tarball" > "$tarball.sha256"
+          {
+            echo "tarball=$tarball"
+            echo "sha256=$(cut -d' ' -f1 "$tarball.sha256")"
+          } >> "$GITHUB_OUTPUT"
+          cat "$tarball.sha256"
+
+      - name: Upload the tarball and its digest
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: npm-package
+          path: dist/
+          if-no-files-found: error
+
+  # Runs no package code: it installs no packages, checks out no code, and
+  # publishes the tarball the build job recorded.
+  publish:
+    name: publish (staged)
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          check-latest: true
+          package-manager-cache: false
+
+      # npm stage publish first shipped in the npm bundled with Node 24.18.
+      - name: Check that npm supports staged publishing
+        run: |
+          npm_version="$(npm --version)"
+          if ! node -e '
+            const [major, minor] = process.argv[1].split(".").map(Number);
+            process.exit(major > 11 || (major === 11 && minor >= 16) ? 0 : 1);
+          ' "$npm_version"; then
+            echo "::error::npm $npm_version cannot stage a publish; 11.16 or later is required"
+            exit 1
+          fi
+          echo "Node.js $(node --version), npm $npm_version"
+
+      - name: Refuse to publish when a GitHub Release exists for the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          existing="$(gh api --paginate "repos/$REPO/releases?per_page=100" --jq '.[] | select(.tag_name == env.TAG) | .html_url')"
+          if [[ -n "$existing" ]]; then
+            echo "::error::A GitHub Release already exists for $TAG: $existing"
+            exit 1
+          fi
+
+      - name: Download the tarball
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: npm-package
+          path: dist
+
+      - name: Verify the tarball digest
+        working-directory: dist
+        env:
+          TARBALL: ${{ needs.build.outputs.tarball }}
+          SHA256: ${{ needs.build.outputs.sha256 }}
+        run: |
+          expected="$(printf '%s\n%s\n' "$TARBALL" "$TARBALL.sha256" | sort)"
+          actual_files="$(find . -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
+          if [[ "$actual_files" != "$expected" ]]; then
+            echo "::error::Unexpected artifact contents: $actual_files"
+            exit 1
+          fi
+          actual="$(sha256sum "$TARBALL" | cut -d' ' -f1)"
+          if [[ "$actual" != "$SHA256" ]]; then
+            echo "::error::$TARBALL has SHA-256 $actual; the build job recorded $SHA256"
+            exit 1
+          fi
+          sha256sum --check "$TARBALL.sha256"
+
+      - name: Stage the npm publish
+        working-directory: dist
+        env:
+          TARBALL: ${{ needs.build.outputs.tarball }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          dist_tag=latest
+          if [[ "$TAG" == *-* ]]; then
+            dist_tag=next
+          fi
+          npm stage publish "./$TARBALL" --ignore-scripts --provenance --tag "$dist_tag"
+
+      - name: Create the draft GitHub Release
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          TARBALL: ${{ needs.build.outputs.tarball }}
+        run: |
+          prerelease=()
+          if [[ "$TAG" == *-* ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "$TAG" "./$TARBALL" \
+            --repo "$REPO" \
+            --draft \
+            --verify-tag \
+            --title "$TAG" \
+            --generate-notes \
+            "${prerelease[@]}"

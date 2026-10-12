@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Runs node-ci.yml against the fixture package. Its workflow-lint job
+  # runs actionlint and zizmor over every workflow in this repository.
+  node-ci:
+    name: node-ci
+    uses: $/.github/workflows/node-ci.yml
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    with:
+      node-versions: '["22", "24"]'
+      working-directory: fixtures/npm-package
+
+  dependency-review:
+    name: dependency-review
+    if: ${{ github.event_name != 'push' }}
+    uses: $/.github/workflows/dependency-review.yml
+    permissions:
+      contents: read
+
+  tools:
+    name: tools
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: tools
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: tools/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Unit tests
+        run: npm test
+
+      - name: License check against the fixture package
+        run: |
+          npm ci --ignore-scripts --prefix ../fixtures/npm-package
+          node check-licenses.mjs ../fixtures/npm-package ../allowed-licenses.txt

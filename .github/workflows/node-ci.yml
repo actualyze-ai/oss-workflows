@@ -1,0 +1,99 @@
+name: Node CI
+
+on:
+  workflow_call:
+    inputs:
+      node-versions:
+        description: JSON array of Node.js versions to run the check script on, such as '["22", "24"]'.
+        type: string
+        default: '["24"]'
+      working-directory:
+        description: Directory holding package.json and package-lock.json, relative to the repository root.
+        type: string
+        default: "."
+      check-script:
+        description: npm script that builds, typechecks, lints, and tests the package.
+        type: string
+        default: check
+
+permissions: {}
+
+jobs:
+  check:
+    name: check (node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ${{ fromJSON(inputs.node-versions) }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the check script
+        run: npm run "$CHECK_SCRIPT"
+        env:
+          CHECK_SCRIPT: ${{ inputs.check-script }}
+
+      - name: Verify registry signatures and attestations
+        run: npm audit signatures
+
+  workflow-lint:
+    name: workflow lint
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: actionlint
+        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # 1.7.12
+        with:
+          args: -color
+
+      # SARIF output reports findings to code scanning but always exits 0,
+      # so a second run with annotations fails the job on any finding.
+      - name: zizmor (code scanning)
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        with:
+          version: 1.30.1
+          advanced-security: true
+
+      - name: zizmor
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        with:
+          version: 1.30.1
+          advanced-security: false
+          annotations: true

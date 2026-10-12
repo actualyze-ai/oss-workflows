@@ -1,0 +1,3 @@
+# Package URLs that dependency-review.yml blocks, one per line.
+# pkg:npm/name denies every version; pkg:npm/name@1.2.3 denies one.
+# Scoped npm packages encode the scope: pkg:npm/%40scope/name.

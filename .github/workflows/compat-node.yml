@@ -1,0 +1,131 @@
+name: Host compatibility
+
+on:
+  workflow_call:
+    inputs:
+      host-packages:
+        description: Space-separated npm names of the host packages. The versions in package-lock.json are the pinned channel.
+        type: string
+        required: true
+      node-version:
+        description: Node.js version to run the tests on.
+        type: string
+        default: "24"
+      working-directory:
+        description: Directory holding package.json and package-lock.json, relative to the repository root.
+        type: string
+        default: "."
+      test-script:
+        description: npm script to run against each host channel.
+        type: string
+        default: check
+
+permissions: {}
+
+jobs:
+  compat:
+    name: compat (${{ matrix.channel }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Only the pinned host blocks; latest and next report through the
+    # issue the report job opens.
+    continue-on-error: ${{ matrix.channel != 'pinned' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [pinned, latest, next]
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install the host's ${{ matrix.channel }} release
+        if: ${{ matrix.channel != 'pinned' }}
+        env:
+          CHANNEL: ${{ matrix.channel }}
+          HOST_PACKAGES: ${{ inputs.host-packages }}
+        run:
+          | # zizmor: ignore[adhoc-packages] testing unreleased host versions is the point of this job
+          read -ra packages <<<"$HOST_PACKAGES"
+          specs=()
+          for package in "${packages[@]}"; do
+            spec="$package@$CHANNEL"
+            if ! npm view "$spec" version >/dev/null 2>&1; then
+              echo "::notice::$package has no $CHANNEL dist-tag; testing its latest release instead"
+              spec="$package@latest"
+            fi
+            specs+=("$spec")
+          done
+          npm install --no-save "${specs[@]}"
+
+      - name: Show the host versions under test
+        env:
+          HOST_PACKAGES: ${{ inputs.host-packages }}
+        run: |
+          read -ra packages <<<"$HOST_PACKAGES"
+          npm ls "${packages[@]}"
+
+      - name: Run the tests
+        env:
+          TEST_SCRIPT: ${{ inputs.test-script }}
+        run: npm run "$TEST_SCRIPT"
+
+  report:
+    name: report
+    needs: compat
+    if: ${{ always() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+
+      - name: Check out the report tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: workflows
+          persist-credentials: false
+          sparse-checkout: tools
+
+      - name: Open or update the compat issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          failed="$(gh api --paginate "repos/$GH_REPO/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs?per_page=100" \
+            --jq '.jobs[] | select(.conclusion == "failure") | "- " + .name')"
+          if [[ -z "$failed" ]]; then
+            echo "Every host channel passed."
+            exit 0
+          fi
+          body="$(printf 'The scheduled host compatibility run failed: %s\n\nFailed jobs:\n%s\n' "$RUN_URL" "$failed")"
+          workflows/tools/report-failure.sh compat "Host compatibility check failing" "$body"

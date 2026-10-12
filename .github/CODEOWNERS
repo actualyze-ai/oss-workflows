@@ -1,0 +1,6 @@
+# Changes here run in every calling repository's CI and release, so they
+# need review from a release approver.
+/.github/                @actualyze-ai/oss-release-approvers
+/allowed-licenses.txt    @actualyze-ai/oss-release-approvers
+/denied-packages.txt     @actualyze-ai/oss-release-approvers
+/tools/                  @actualyze-ai/oss-release-approvers

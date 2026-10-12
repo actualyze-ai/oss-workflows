@@ -1,0 +1,22 @@
+{
+  "name": "actualyze-workflows-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Minimal npm package that the shared workflows' own CI runs against",
+  "license": "MIT",
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "index.js"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "npm test && npm pack --dry-run"
+  },
+  "dependencies": {
+    "semver": "7.8.5"
+  }
+}

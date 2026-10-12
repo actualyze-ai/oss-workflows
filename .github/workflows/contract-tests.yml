@@ -1,0 +1,95 @@
+name: Contract tests
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version to run the tests on.
+        type: string
+        default: "24"
+      working-directory:
+        description: Directory holding package.json and package-lock.json, relative to the repository root.
+        type: string
+        default: "."
+      test-script:
+        description: npm script that runs the contract tests.
+        type: string
+        default: test:contract
+
+permissions: {}
+
+jobs:
+  contract:
+    name: contract tests
+    runs-on: ubuntu-latest
+    # ACTUALYZE_BASE_URL (variable) and ACTUALYZE_API_KEY (secret) come from
+    # this environment, which is limited to the default branch.
+    environment: contract-tests
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the contract tests
+        env:
+          ACTUALYZE_BASE_URL: ${{ vars.ACTUALYZE_BASE_URL }}
+          ACTUALYZE_API_KEY: ${{ secrets.ACTUALYZE_API_KEY }}
+          TEST_SCRIPT: ${{ inputs.test-script }}
+        run: |
+          if [[ -z "$ACTUALYZE_BASE_URL" || -z "$ACTUALYZE_API_KEY" ]]; then
+            echo "::error::The contract-tests environment needs the ACTUALYZE_BASE_URL variable and the ACTUALYZE_API_KEY secret"
+            exit 1
+          fi
+          npm run "$TEST_SCRIPT"
+
+  report:
+    name: report
+    needs: contract
+    if: ${{ failure() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+
+      - name: Check out the report tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: workflows
+          persist-credentials: false
+          sparse-checkout: tools
+
+      - name: Open or update the contract issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          body="$(printf 'The scheduled contract test run against the Actualyze API failed: %s\n' "$RUN_URL")"
+          workflows/tools/report-failure.sh contract "Actualyze API contract tests failing" "$body"
