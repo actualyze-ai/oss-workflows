@@ -32,6 +32,22 @@ export function licenseProblem(license, allowed) {
 }
 
 /**
+ * Returns why `entry` cannot be a permitted license, or undefined when it
+ * can. spdx-satisfies accepts only single SPDX identifiers, optionally
+ * with `+` or `WITH <exception>`, in the permitted list, and throws on
+ * anything else, which would otherwise surface as an error against
+ * whichever package is checked first.
+ */
+export function allowedEntryProblem(entry) {
+  try {
+    satisfies(entry, [entry]);
+    return undefined;
+  } catch {
+    return `"${entry}" is not a single SPDX license identifier`;
+  }
+}
+
+/**
  * Checks a license-checker-rseidelsohn result map. A package whose
  * `licenses` field is a list (the legacy package.json `licenses` array)
  * must have every entry permitted.
@@ -64,7 +80,22 @@ async function main() {
     console.error("usage: node check-licenses.mjs <package-dir> <allowed-licenses-file> [extra-licenses]");
     process.exit(2);
   }
-  const allowed = [...readList(allowedPath), ...parseList(extra)];
+  const sources = [
+    [allowedPath, readList(allowedPath)],
+    ["additional licenses", parseList(extra)],
+  ];
+  let invalid = false;
+  for (const [source, entries] of sources) {
+    for (const entry of entries) {
+      const problem = allowedEntryProblem(entry);
+      if (problem) {
+        console.log(`::error title=Invalid permitted license::${source}: ${problem}`);
+        invalid = true;
+      }
+    }
+  }
+  if (invalid) process.exit(2);
+  const allowed = sources.flatMap(([, entries]) => entries);
   const packages = await scan(start);
   const violations = findViolations(packages, allowed);
   console.log(`Checked ${Object.keys(packages).length} packages against ${allowed.length} permitted licenses.`);

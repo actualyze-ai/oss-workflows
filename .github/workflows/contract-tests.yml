@@ -15,6 +15,10 @@ on:
         description: npm script that runs the contract tests.
         type: string
         default: test:contract
+    secrets:
+      ACTUALYZE_API_KEY:
+        description: Actualyze API key for the contract tests. Pass the contract-tests environment's secret explicitly.
+        required: false
 
 permissions: {}
 
@@ -22,8 +26,12 @@ jobs:
   contract:
     name: contract tests
     runs-on: ubuntu-latest
-    # ACTUALYZE_BASE_URL (variable) and ACTUALYZE_API_KEY (secret) come from
-    # this environment, which is limited to the default branch.
+    # The environment is limited to the default branch and holds the
+    # ACTUALYZE_BASE_URL variable and the ACTUALYZE_API_KEY secret. The
+    # caller passes ACTUALYZE_API_KEY explicitly, and the key is expected to
+    # come from this environment. A caller that holds the key only as an
+    # environment secret and sees the job report it missing can pass
+    # `secrets: inherit` instead.
     environment: contract-tests
     permissions:
       contents: read
@@ -57,7 +65,7 @@ jobs:
           TEST_SCRIPT: ${{ inputs.test-script }}
         run: |
           if [[ -z "$ACTUALYZE_BASE_URL" || -z "$ACTUALYZE_API_KEY" ]]; then
-            echo "::error::The contract-tests environment needs the ACTUALYZE_BASE_URL variable and the ACTUALYZE_API_KEY secret"
+            echo "::error::The contract-tests environment needs the ACTUALYZE_BASE_URL variable and the ACTUALYZE_API_KEY secret, and the caller must pass ACTUALYZE_API_KEY"
             exit 1
           fi
           npm run "$TEST_SCRIPT"

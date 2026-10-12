@@ -95,8 +95,6 @@ jobs:
             exit 1
           fi
           {
-            echo "tarball=$tarball"
-            echo "sha256=$(cut -d' ' -f1 "$tarball.sha256")"
             echo "integrity=sha512-$(openssl dgst -sha512 -binary "$tarball" | base64 -w0)"
             echo "name=$name"
             echo "version=$version"
@@ -126,17 +124,16 @@ jobs:
             console.log("Provenance: " + dist.attestations.provenance.predicateType);
           ' "$dist" "$INTEGRITY"
 
+      # npm is the only distribution channel: the draft must carry no
+      # assets, so there is no file to swap before it is published.
       - name: Check the draft GitHub Release
         id: draft
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag }}
-          TARBALL: ${{ steps.record.outputs.tarball }}
-          SHA256: ${{ steps.record.outputs.sha256 }}
-          INTEGRITY: ${{ steps.record.outputs.integrity }}
         run: |
-          release_id="$(workflows/tools/verify-release-assets.sh draft "$TARBALL" "$SHA256" "$INTEGRITY")"
+          release_id="$(workflows/tools/verify-release-assets.sh draft)"
           echo "release-id=$release_id" >> "$GITHUB_OUTPUT"
 
       - name: Publish the GitHub Release
@@ -153,14 +150,11 @@ jobs:
           gh api --method PATCH "repos/$REPO/releases/$RELEASE_ID" \
             -F draft=false -f make_latest="$make_latest" --jq .html_url
 
-      # Assets can change until the release is published; with release
+      # Assets can be added until the release is published; with release
       # immutability on, what this step sees is final.
       - name: Check the published GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag }}
-          TARBALL: ${{ steps.record.outputs.tarball }}
-          SHA256: ${{ steps.record.outputs.sha256 }}
-          INTEGRITY: ${{ steps.record.outputs.integrity }}
-        run: workflows/tools/verify-release-assets.sh published "$TARBALL" "$SHA256" "$INTEGRITY"
+        run: workflows/tools/verify-release-assets.sh published

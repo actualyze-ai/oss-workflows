@@ -43,8 +43,10 @@ so each calling job must grant these:
 | `contract-tests.yml`    | `contents: read`, `issues: write`                                              |
 | `scorecard.yml`         | `actions: read`, `contents: read`, `id-token: write`, `security-events: write` |
 
-Do not pass `secrets: inherit`. None of these workflows takes a secret from
-the caller; the ones that need a credential read it from an environment.
+Do not pass `secrets: inherit`. Only `contract-tests.yml` takes a secret,
+`ACTUALYZE_API_KEY`, and the caller passes it by name. The one exception
+is a `contract-tests.yml` caller whose job reports the key missing when
+it is passed by name (see [Contract tests](#contract-tests)).
 
 ### Inputs
 
@@ -156,13 +158,45 @@ jobs:
       tag: ${{ inputs.tag }}
 ```
 
+### Contract tests
+
+`contract-tests.yml` runs its job in the `contract-tests` environment,
+which holds the `ACTUALYZE_API_KEY` secret and the `ACTUALYZE_BASE_URL`
+variable. The workflow reads the variable from the environment. The
+caller passes `ACTUALYZE_API_KEY` explicitly, and the key is expected to
+come from the `contract-tests` environment. If a caller holds the key
+only as an environment secret and the job reports it missing, that
+caller can pass `secrets: inherit` instead of naming the secret; no other
+caller passes `secrets: inherit`.
+
+```yaml
+# .github/workflows/contract-tests.yml
+name: Contract tests
+
+on:
+  schedule:
+    - cron: "53 6 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  contract-tests:
+    uses: actualyze-ai/workflows/.github/workflows/contract-tests.yml@<commit-sha>
+    permissions:
+      contents: read
+      issues: write
+    secrets:
+      ACTUALYZE_API_KEY: ${{ secrets.ACTUALYZE_API_KEY }}
+```
+
 ### What a calling repository needs
 
 | Setting                           | Needed by            | Configuration                                                                                                             |
 | --------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Environment `release`             | `release-npm.yml`    | Required reviewers from `oss-release-approvers`, self-review prevented, no admin bypass, deployments limited to `v*` tags |
 | npm trusted publisher             | `release-npm.yml`    | The repository, workflow `release.yml`, environment `release`, allowed to stage publishes only                            |
-| Environment `contract-tests`      | `contract-tests.yml` | Limited to the default branch; variable `ACTUALYZE_BASE_URL` and secret `ACTUALYZE_API_KEY`                               |
+| Environment `contract-tests`      | `contract-tests.yml` | Limited to the default branch; secret `ACTUALYZE_API_KEY`, which the caller passes, and variable `ACTUALYZE_BASE_URL`     |
 | `.github/provenance-baseline.txt` | `vuln-scan.yml`      | Every published version that has no provenance, with the reason                                                           |
 
 ## How a release runs
@@ -170,17 +204,19 @@ jobs:
 1. A release approver pushes tag `vX.Y.Z`; it must equal the `version` in
    `package.json`.
 2. The **build** job, which has no `id-token` permission and no package
-   cache, runs `npm ci`, `npm run check`, `npm audit --audit-level=moderate`,
-   `npm audit signatures`, and the license check of the production tree. It
-   packs the tarball and uploads it with its SHA-256 as the `npm-package`
-   artifact.
+   cache, installs with `npm ci --ignore-scripts` and runs
+   `npm audit --audit-level=moderate`, `npm audit signatures`, and the
+   license check of the production tree before any dependency or package
+   script runs. It then runs the dependencies' install scripts with
+   `npm rebuild`, runs `npm run check`, packs the tarball, and uploads it
+   with its SHA-256 as the `npm-package` artifact.
 3. The **publish** job waits for approval in environment `release`. It
    fails if a GitHub Release already exists for the tag. It downloads the
    tarball, checks its SHA-256 against the build job's output, and runs
    `npm stage publish <tarball> --ignore-scripts --provenance` on Node 24
    with npm 11.16 or later. It installs no packages and checks out no code.
    Versions with a pre-release suffix use the `next` dist-tag. It then
-   creates a draft GitHub Release holding the tarball.
+   creates a draft GitHub Release with generated notes and no assets.
 4. A maintainer runs `npm stage approve <stage-id>`, which needs 2FA.
 5. A release approver runs the caller's `finalize-release.yml` with the
    tag. It finds the successful release run for the tag commit, downloads
@@ -188,11 +224,15 @@ jobs:
    - the npm version is public, has a provenance attestation, and its
      `dist.integrity` matches the recorded tarball;
    - exactly one GitHub Release exists for the tag, and it is a draft;
-   - the draft holds exactly one asset, the tarball, whose SHA-256 matches
-     the build record and whose SHA-512 matches `dist.integrity`.
+   - the draft has no assets.
 
-   It then publishes the draft and repeats the asset check on the
-   published Release.
+   It then publishes the draft and checks that the published Release
+   still has no assets.
+
+npm is the only distribution channel. The GitHub Release carries release
+notes and no files, so there is no asset that could be replaced between
+the checks and publication; install the package from npm and verify it as
+described in [Verifying a release](#verifying-a-release).
 
 ## Policy files
 
@@ -208,7 +248,10 @@ next pin update.
 The license check in `release-npm.yml` evaluates each package's SPDX
 expression: an `OR` expression passes when any branch is allowed, and an
 `AND` expression only when every term is. Packages with no license, an
-`UNKNOWN` license, or text that is not an SPDX expression fail.
+`UNKNOWN` license, or text that is not an SPDX expression fail. Every entry
+in `allowed-licenses.txt` and `additional-licenses` must be a single SPDX
+identifier; the check names any other entry and fails before it reads a
+package.
 
 ## Verifying a release
 

@@ -1,8 +1,59 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { findViolations, licenseProblem } from "../check-licenses.mjs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
+import { allowedEntryProblem, findViolations, licenseProblem } from "../check-licenses.mjs";
 
 const allowed = ["MIT", "ISC", "Apache-2.0"];
+const script = fileURLToPath(new URL("../check-licenses.mjs", import.meta.url));
+
+describe("allowedEntryProblem", () => {
+  it("accepts single identifiers, with or without + and an exception", () => {
+    for (const entry of ["MIT", "GPL-2.0+", "Apache-2.0 WITH LLVM-exception", "LicenseRef-Internal"]) {
+      assert.equal(allowedEntryProblem(entry), undefined, entry);
+    }
+  });
+
+  it("rejects an OR or AND expression", () => {
+    assert.match(allowedEntryProblem("MIT OR ISC"), /"MIT OR ISC" is not a single SPDX license identifier/u);
+    assert.match(allowedEntryProblem("MIT AND ISC"), /not a single SPDX license identifier/u);
+  });
+
+  it("rejects text that is not an SPDX identifier", () => {
+    assert.match(allowedEntryProblem("Apache 2.0"), /"Apache 2.0" is not a single SPDX license identifier/u);
+  });
+});
+
+describe("check-licenses.mjs with an invalid permitted license", () => {
+  const dir = mkdtempSync(join(tmpdir(), "check-licenses-"));
+  after(() => rmSync(dir, { recursive: true, force: true }));
+
+  // The package directory does not exist, so reaching the dependency scan
+  // would fail differently: the list is rejected before anything is read.
+  function run(allowedText, extra) {
+    const allowedPath = join(dir, "allowed.txt");
+    writeFileSync(allowedPath, allowedText);
+    return spawnSync(process.execPath, [script, join(dir, "missing-package"), allowedPath, extra], {
+      encoding: "utf8",
+    });
+  }
+
+  it("names the bad entry and the file it came from", () => {
+    const result = run("MIT\nApache 2.0\n", "");
+    assert.equal(result.status, 2);
+    assert.match(result.stdout, /allowed\.txt: "Apache 2\.0" is not a single SPDX license identifier/u);
+    assert.doesNotMatch(result.stdout, /"MIT"/u);
+  });
+
+  it("names a bad additional license", () => {
+    const result = run("MIT\n", "ISC, MIT OR ISC");
+    assert.equal(result.status, 2);
+    assert.match(result.stdout, /additional licenses: "MIT OR ISC" is not a single SPDX license identifier/u);
+  });
+});
 
 describe("licenseProblem", () => {
   it("accepts a permitted identifier", () => {

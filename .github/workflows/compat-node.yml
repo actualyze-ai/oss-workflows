@@ -77,12 +77,19 @@ jobs:
           done
           npm install --no-save "${specs[@]}"
 
+      # Reads each installed package.json, because npm ls fails when the
+      # latest or next release does not satisfy the version package.json
+      # declares.
       - name: Show the host versions under test
         env:
           HOST_PACKAGES: ${{ inputs.host-packages }}
         run: |
           read -ra packages <<<"$HOST_PACKAGES"
-          npm ls "${packages[@]}"
+          for package in "${packages[@]}"; do
+            version="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).version' \
+              "node_modules/$package/package.json")"
+            echo "$package@$version"
+          done
 
       - name: Run the tests
         env:

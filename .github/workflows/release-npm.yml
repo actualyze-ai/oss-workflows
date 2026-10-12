@@ -66,11 +66,10 @@ jobs:
             exit 1
           fi
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run the check script
-        run: npm run check
+      # The audits and the license check run before any install script or
+      # package script, so a dependency that fails them never runs code.
+      - name: Install dependencies without running scripts
+        run: npm ci --ignore-scripts
 
       - name: Audit the full dependency tree
         run: npm audit --audit-level=moderate
@@ -86,6 +85,12 @@ jobs:
         env:
           ADDITIONAL_LICENSES: ${{ inputs.additional-licenses }}
         run: node ../workflows/tools/check-licenses.mjs . ../workflows/allowed-licenses.txt "$ADDITIONAL_LICENSES"
+
+      - name: Run the dependencies' install scripts
+        run: npm rebuild
+
+      - name: Run the check script
+        run: npm run check
 
       - name: Pack
         id: pack
@@ -199,19 +204,19 @@ jobs:
           fi
           npm stage publish "./$TARBALL" --ignore-scripts --provenance --tag "$dist_tag"
 
+      # npm is the only distribution channel, so the Release carries notes
+      # and no assets; finalize-release.yml refuses a Release with any.
       - name: Create the draft GitHub Release
-        working-directory: dist
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
-          TARBALL: ${{ needs.build.outputs.tarball }}
         run: |
           prerelease=()
           if [[ "$TAG" == *-* ]]; then
             prerelease=(--prerelease)
           fi
-          gh release create "$TAG" "./$TARBALL" \
+          gh release create "$TAG" \
             --repo "$REPO" \
             --draft \
             --verify-tag \
