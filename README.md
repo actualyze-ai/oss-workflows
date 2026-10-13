@@ -1,4 +1,4 @@
-# actualyze-ai/workflows
+# actualyze-ai/oss-workflows
 
 Reusable GitHub Actions workflows that run CI, security scanning, and npm
 releases for Actualyze's open-source repositories.
@@ -105,7 +105,7 @@ permissions: {}
 
 jobs:
   ci:
-    uses: actualyze-ai/workflows/.github/workflows/node-ci.yml@<commit-sha>
+    uses: actualyze-ai/oss-workflows/.github/workflows/node-ci.yml@<commit-sha>
     permissions:
       actions: read
       contents: read
@@ -128,7 +128,7 @@ permissions: {}
 
 jobs:
   release:
-    uses: actualyze-ai/workflows/.github/workflows/release-npm.yml@<commit-sha>
+    uses: actualyze-ai/oss-workflows/.github/workflows/release-npm.yml@<commit-sha>
     permissions:
       contents: write
       id-token: write
@@ -150,7 +150,7 @@ permissions: {}
 
 jobs:
   finalize:
-    uses: actualyze-ai/workflows/.github/workflows/finalize-release.yml@<commit-sha>
+    uses: actualyze-ai/oss-workflows/.github/workflows/finalize-release.yml@<commit-sha>
     permissions:
       actions: read
       contents: write
@@ -182,7 +182,7 @@ permissions: {}
 
 jobs:
   contract-tests:
-    uses: actualyze-ai/workflows/.github/workflows/contract-tests.yml@<commit-sha>
+    uses: actualyze-ai/oss-workflows/.github/workflows/contract-tests.yml@<commit-sha>
     permissions:
       contents: read
       issues: write
