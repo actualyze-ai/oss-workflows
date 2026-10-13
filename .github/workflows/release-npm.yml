@@ -11,6 +11,10 @@ on:
         description: Comma-separated SPDX identifiers the calling repository permits in addition to allowed-licenses.txt. Record the reason for each in the calling repository.
         type: string
         default: ""
+      publish-mode:
+        description: How the publish job releases to npm. "staged" runs npm stage publish, and the version stays private until a maintainer approves it with 2FA. "direct" runs npm publish, so approval of the release environment is the last human check; the npm trusted publisher must allow npm publish.
+        type: string
+        default: staged
 
 permissions: {}
 
@@ -37,6 +41,15 @@ jobs:
         with:
           path: package
           persist-credentials: false
+
+      - name: Check the publish mode
+        env:
+          PUBLISH_MODE: ${{ inputs.publish-mode }}
+        run: |
+          if [[ "$PUBLISH_MODE" != staged && "$PUBLISH_MODE" != direct ]]; then
+            echo "::error::publish-mode must be staged or direct, not $PUBLISH_MODE"
+            exit 1
+          fi
 
       - name: Check out the policy tools
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -122,7 +135,7 @@ jobs:
   # Runs no package code: it installs no packages, checks out no code, and
   # publishes the tarball the build job recorded.
   publish:
-    name: publish (staged)
+    name: publish (${{ inputs.publish-mode }})
     needs: build
     runs-on: ubuntu-latest
     environment: release
@@ -144,6 +157,7 @@ jobs:
 
       # npm stage publish first shipped in the npm bundled with Node 24.18.
       - name: Check that npm supports staged publishing
+        if: inputs.publish-mode == 'staged'
         run: |
           npm_version="$(npm --version)"
           if ! node -e '
@@ -192,9 +206,10 @@ jobs:
           fi
           sha256sum --check "$TARBALL.sha256"
 
-      - name: Stage the npm publish
+      - name: Publish to npm
         working-directory: dist
         env:
+          PUBLISH_MODE: ${{ inputs.publish-mode }}
           TARBALL: ${{ needs.build.outputs.tarball }}
           TAG: ${{ github.ref_name }}
         run: |
@@ -202,7 +217,11 @@ jobs:
           if [[ "$TAG" == *-* ]]; then
             dist_tag=next
           fi
-          npm stage publish "./$TARBALL" --ignore-scripts --provenance --tag "$dist_tag"
+          if [[ "$PUBLISH_MODE" == direct ]]; then
+            npm publish "./$TARBALL" --ignore-scripts --provenance --tag "$dist_tag"
+          else
+            npm stage publish "./$TARBALL" --ignore-scripts --provenance --tag "$dist_tag"
+          fi
 
       # npm is the only distribution channel, so the Release carries notes
       # and no assets; finalize-release.yml refuses a Release with any.

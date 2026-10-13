@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: Release tag, such as v1.2.3. Its staged npm publish must already be approved.
+        description: Release tag, such as v1.2.3. Its npm version must already be public; a staged publish must be approved first.
         type: string
         required: true
       release-workflow:
@@ -107,7 +107,7 @@ jobs:
           INTEGRITY: ${{ steps.record.outputs.integrity }}
         run: |
           if ! dist="$(npm view "$NAME@$VERSION" dist --json)"; then
-            echo "::error::$NAME@$VERSION is not public. Approve the staged publish with npm stage approve first."
+            echo "::error::$NAME@$VERSION is not public. If the release was staged, approve it with npm stage approve first."
             exit 1
           fi
           node -e '
