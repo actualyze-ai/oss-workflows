@@ -9,17 +9,17 @@ moves its pin, which Dependabot proposes as a pull request.
 
 ## Workflows
 
-| Workflow                                                           | Runs                                                                                             | Caller triggers                                             |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
-| [`node-ci.yml`](.github/workflows/node-ci.yml)                     | `npm ci`, the check script, `npm audit signatures`, actionlint, zizmor                           | `pull_request`, `merge_group`, `push` to `main`             |
-| [`codeql.yml`](.github/workflows/codeql.yml)                       | CodeQL advanced setup with `build-mode: none`                                                    | `pull_request`, `merge_group`, `push`, weekly schedule      |
-| [`dependency-review.yml`](.github/workflows/dependency-review.yml) | Blocks new vulnerable, denied, or disallowed-license dependencies                                | `pull_request`, `merge_group`                               |
-| [`vuln-scan.yml`](.github/workflows/vuln-scan.yml)                 | Full-tree `npm audit`, `npm audit signatures`, and a provenance check of every published version | daily schedule, `workflow_dispatch`                         |
-| [`release-npm.yml`](.github/workflows/release-npm.yml)             | Builds and checks the package, then stages the npm publish and drafts the GitHub Release         | `push` of a `v*` tag                                        |
-| [`finalize-release.yml`](.github/workflows/finalize-release.yml)   | Checks the approved npm version against the build record and publishes the draft Release         | `workflow_dispatch`                                         |
-| [`compat-node.yml`](.github/workflows/compat-node.yml)             | Tests against the pinned, `latest`, and `next` host releases                                     | daily schedule, `workflow_dispatch`                         |
-| [`contract-tests.yml`](.github/workflows/contract-tests.yml)       | Runs the caller's contract tests against a live Actualyze endpoint                               | schedule, `workflow_dispatch`                               |
-| [`scorecard.yml`](.github/workflows/scorecard.yml)                 | OpenSSF Scorecard, with results published and uploaded to code scanning                          | weekly schedule, `push` to `main`, `branch_protection_rule` |
+| Workflow                                                           | Runs                                                                                                   | Caller triggers                                             |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| [`node-ci.yml`](.github/workflows/node-ci.yml)                     | `npm ci`, the check script, `npm audit signatures`, actionlint, zizmor                                 | `pull_request`, `merge_group`, `push` to `main`             |
+| [`codeql.yml`](.github/workflows/codeql.yml)                       | CodeQL advanced setup with `build-mode: none`                                                          | `pull_request`, `merge_group`, `push`, weekly schedule      |
+| [`dependency-review.yml`](.github/workflows/dependency-review.yml) | Blocks new vulnerable, denied, or disallowed-license dependencies                                      | `pull_request`, `merge_group`                               |
+| [`vuln-scan.yml`](.github/workflows/vuln-scan.yml)                 | Full-tree `npm audit`, `npm audit signatures`, and a provenance check of every published version       | daily schedule, `workflow_dispatch`                         |
+| [`release-npm.yml`](.github/workflows/release-npm.yml)             | Builds and checks the package, then publishes to npm (staged by default) and drafts the GitHub Release | `push` of a `v*` tag                                        |
+| [`finalize-release.yml`](.github/workflows/finalize-release.yml)   | Checks the public npm version against the build record and publishes the draft Release                 | `workflow_dispatch`                                         |
+| [`compat-node.yml`](.github/workflows/compat-node.yml)             | Tests against the pinned, `latest`, and `next` host releases                                           | daily schedule, `workflow_dispatch`                         |
+| [`contract-tests.yml`](.github/workflows/contract-tests.yml)       | Runs the caller's contract tests against a live Actualyze endpoint                                     | schedule, `workflow_dispatch`                               |
+| [`scorecard.yml`](.github/workflows/scorecard.yml)                 | OpenSSF Scorecard, with results published and uploaded to code scanning                                | weekly schedule, `push` to `main`, `branch_protection_rule` |
 
 Every workflow sets `permissions: {}` at the top and grants permissions per
 job, checks out with `persist-credentials: false`, pins every action by
@@ -64,6 +64,7 @@ it is passed by name (see [Contract tests](#contract-tests)).
 |                         | `provenance-baseline`         | `.github/provenance-baseline.txt`        | Published versions without provenance, one `<version> <reason>` per line            |
 | `release-npm.yml`       | `node-version`                | `24`                                     | Node.js version for the build job                                                   |
 |                         | `additional-licenses`         | empty                                    | Comma-separated SPDX identifiers permitted on top of `allowed-licenses.txt`         |
+|                         | `publish-mode`                | `staged`                                 | `staged` or `direct`; see [How a release runs](#how-a-release-runs)                 |
 | `finalize-release.yml`  | `tag`                         | required                                 | Release tag, such as `v1.2.3`                                                       |
 |                         | `release-workflow`            | `release.yml`                            | File name of the caller's workflow that calls `release-npm.yml`                     |
 | `compat-node.yml`       | `host-packages`               | required                                 | Space-separated npm names of the host packages                                      |
@@ -192,12 +193,12 @@ jobs:
 
 ### What a calling repository needs
 
-| Setting                           | Needed by            | Configuration                                                                                                             |
-| --------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Environment `release`             | `release-npm.yml`    | Required reviewers from `oss-release-approvers`, self-review prevented, no admin bypass, deployments limited to `v*` tags |
-| npm trusted publisher             | `release-npm.yml`    | The repository, workflow `release.yml`, environment `release`, allowed to stage publishes only                            |
-| Environment `contract-tests`      | `contract-tests.yml` | Limited to the default branch; secret `ACTUALYZE_API_KEY`, which the caller passes, and variable `ACTUALYZE_BASE_URL`     |
-| `.github/provenance-baseline.txt` | `vuln-scan.yml`      | Every published version that has no provenance, with the reason                                                           |
+| Setting                           | Needed by            | Configuration                                                                                                                                                            |
+| --------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Environment `release`             | `release-npm.yml`    | Required reviewers from `oss-release-approvers`, self-review prevented, no admin bypass, deployments limited to `v*` tags                                                |
+| npm trusted publisher             | `release-npm.yml`    | The repository, workflow `release.yml`, environment `release`, allowed to stage publishes only, or also to run `npm publish` when the caller sets `publish-mode: direct` |
+| Environment `contract-tests`      | `contract-tests.yml` | Limited to the default branch; secret `ACTUALYZE_API_KEY`, which the caller passes, and variable `ACTUALYZE_BASE_URL`                                                    |
+| `.github/provenance-baseline.txt` | `vuln-scan.yml`      | Every published version that has no provenance, with the reason                                                                                                          |
 
 ## How a release runs
 
@@ -212,12 +213,18 @@ jobs:
    with its SHA-256 as the `npm-package` artifact.
 3. The **publish** job waits for approval in environment `release`. It
    fails if a GitHub Release already exists for the tag. It downloads the
-   tarball, checks its SHA-256 against the build job's output, and runs
+   tarball and checks its SHA-256 against the build job's output. With the
+   default `publish-mode: staged`, it runs
    `npm stage publish <tarball> --ignore-scripts --provenance` on Node 24
-   with npm 11.16 or later. It installs no packages and checks out no code.
-   Versions with a pre-release suffix use the `next` dist-tag. It then
-   creates a draft GitHub Release with generated notes and no assets.
-4. A maintainer runs `npm stage approve <stage-id>`, which needs 2FA.
+   with npm 11.16 or later. With `publish-mode: direct`, it runs
+   `npm publish` with the same flags instead. It installs no packages and
+   checks out no code. Versions with a pre-release suffix use the `next`
+   dist-tag. It then creates a draft GitHub Release with generated notes
+   and no assets.
+4. For a staged release, a maintainer runs `npm stage approve <stage-id>`,
+   which needs 2FA. A direct release is public on npm as soon as the
+   publish job finishes, so the `release` environment approval is the last
+   human check before users can install it.
 5. A release approver runs the caller's `finalize-release.yml` with the
    tag. It finds the successful release run for the tag commit, downloads
    that run's build record, and checks that:
