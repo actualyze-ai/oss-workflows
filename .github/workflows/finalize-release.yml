@@ -54,7 +54,9 @@ jobs:
             echo "::error::$TAG is not a version tag"
             exit 1
           fi
-          tag_sha="$(gh api "repos/$REPO/commits/tags/$TAG" --jq .sha)"
+          # Use the full tag ref: "tags/<tag>" returns 422, and a bare name
+          # could match a branch.
+          tag_sha="$(gh api "repos/$REPO/commits/refs/tags/$TAG" --jq .sha)"
           runs="$(TAG_SHA="$tag_sha" gh api --paginate \
             "repos/$REPO/actions/workflows/$WORKFLOW/runs?event=push&branch=$TAG&status=success&per_page=100" \
             --jq '.workflow_runs[] | select(.head_sha == env.TAG_SHA) | .id')"
