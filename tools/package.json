@@ -13,6 +13,6 @@
   },
   "dependencies": {
     "license-checker-rseidelsohn": "5.0.1",
-    "spdx-satisfies": "6.0.0"
+    "spdx-satisfies": "6.0.1"
   }
 }
